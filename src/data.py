@@ -243,6 +243,36 @@ class VOCDataset(data.Dataset):
 
         return img, gt, height, width
 
+#データサイズ(アノテーション数)が異なるため、データローダのod_collate_fnを作成する必要がある
+def od_collate_fn(batch):
+    """
+    Datasetから取り出すアノテーションデータのサイズが画像ごとに異なります。
+    画像内の物体数が2個であれば(2, 5)というサイズですが、3個であれば（3, 5）など変化します。
+    この変化に対応したDataLoaderを作成するために、
+    カスタイマイズした、collate_fnを作成します。
+    collate_fnは、PyTorchでリストからmini-batchを作成する関数です。
+    ミニバッチ分の画像が並んでいるリスト変数batchに、
+    ミニバッチ番号を指定する次元を先頭に1つ追加して、リストの形を変形します。
+    """
+
+    targets = []
+    imgs = []
+    for sample in batch:
+        imgs.append(sample[0])  # sample[0] は画像imgです
+        targets.append(torch.FloatTensor(sample[1]))  # sample[1] はアノテーションgtです
+
+    # imgsはミニバッチサイズのリストになっています
+    # リストの要素はtorch.Size([3, 300, 300])です。
+    # このリストをtorch.Size([batch_num, 3, 300, 300])のテンソルに変換します
+    imgs = torch.stack(imgs, dim=0)
+
+    # targetsはアノテーションデータの正解であるgtのリストです。
+    # リストのサイズはミニバッチサイズです。
+    # リストtargetsの要素は [n, 5] となっています。
+    # nは画像ごとに異なり、画像内にある物体の数となります。
+    # 5は [xmin, ymin, xmax, ymax, class_index] です
+
+    return imgs, targets
 
 if __name__ == "__main__":
     rootpath = "/Users/washizakikai/data/VOCdevkit/VOC2012/"
@@ -320,4 +350,26 @@ if __name__ == "__main__":
 
 
     # データの取り出し例
-    print(val_dataset.__getitem__(1))
+    #print(val_dataset.__getitem__(1))
+
+
+    #DataLoader
+    batch_size = 4
+
+    train_dataloader = data.DataLoader(
+        train_dataset, batch_size=batch_size, shuffle=True, collate_fn=od_collate_fn)
+
+    val_dataloader = data.DataLoader(
+        val_dataset, batch_size=batch_size, shuffle=False, collate_fn=od_collate_fn)
+
+    # 辞書型変数にまとめる
+    dataloaders_dict = {"train": train_dataloader, "val": val_dataloader}
+
+    # 動作の確認
+    batch_iterator = iter(dataloaders_dict["val"])  # イタレータに変換
+    images, targets = next(batch_iterator)  # 1番目の要素を取り出す
+    print(images.size())  # torch.Size([4, 3, 300, 300])
+    print(len(targets))
+    print(targets[1].size())  # ミニバッチのサイズのリスト、各要素は[n, 5]、nは物体数
+    print(train_dataset.__len__())
+    print(val_dataset.__len__())
